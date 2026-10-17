@@ -348,10 +348,10 @@ class LearningShapeletsCL:
                 c_normalising_factor_k = torch.tensor([0], dtype=torch.float).cuda()
                 C_accu_k = [torch.tensor([0], dtype=torch.float).cuda() for _ in range(len(self.shapelets_size_and_len))]
             else:
-                c_normalising_factor_q = torch.tensor([0], dtype=torch.float).cuda()
-                C_accu_q = [torch.tensor([0], dtype=torch.float).cuda() for _ in range(len(self.shapelets_size_and_len))]
-                c_normalising_factor_k = torch.tensor([0], dtype=torch.float).cuda()
-                C_accu_k = [torch.tensor([0], dtype=torch.float).cuda() for _ in range(len(self.shapelets_size_and_len))]
+                c_normalising_factor_q = torch.tensor([0], dtype=torch.float)
+                C_accu_q = [torch.tensor([0], dtype=torch.float) for _ in range(len(self.shapelets_size_and_len))]
+                c_normalising_factor_k = torch.tensor([0], dtype=torch.float)
+                C_accu_k = [torch.tensor([0], dtype=torch.float) for _ in range(len(self.shapelets_size_and_len))]
             
             
             for (x, idx) in train_dl:
