@@ -57,6 +57,19 @@ For anomaly detection, use the following command:
 
 `python CSL_AD.py [dataset_name] --window-size [window-size]`
 
+The commands automatically select CUDA when available, otherwise Apple's MPS GPU, otherwise CPU.
+Use `--device cpu`, `--device cuda`, or `--device mps` to select a device explicitly.
+For example, compare the same dataset on an Apple Silicon Mac with:
+
+```
+python UEA.py BasicMotions --device cpu
+python UEA.py BasicMotions --device mps
+```
+
+The legacy `--to-cuda false` option selects CPU when `--device` is `auto`.
+Distributed training (`--world-size`) requires CUDA. The separate MAST implementation
+has not been adapted for MPS.
+
 Use `-h` or `--help` option for the detailed messages of the other options, such as the hyper-parameters and the random seed.
 
 ### New: Efficient and memory-aware activation checkpointing is now supported using our MAST planner 

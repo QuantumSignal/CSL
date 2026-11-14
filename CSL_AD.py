@@ -57,7 +57,8 @@ parser.add_argument('-l', '--lmd', default=1e-2, type=float, help='multi-scale a
 parser.add_argument('-ls', '--lmd-s', default=1.0, type=float, help='SDL weight')
 parser.add_argument('-a', '--alpha', default=0.5, type=float, help='covariance matrix decay')
 parser.add_argument('-b', '--batch-size', default=8, type=int)
-parser.add_argument('-g', '--to-cuda', default=True, type=bool)
+parser.add_argument('-g', '--to-cuda', default='true', type=str.lower, choices=['true', 'false'])
+parser.add_argument('--device', default='auto', choices=['auto', 'cpu', 'cuda', 'mps'])
 parser.add_argument('-e', '--eval-per-x-epochs', default=10, type=int)
 parser.add_argument('-d', '--dist-measure', default='mix', type=str)
 #parser.add_argument('-r', '--rank', default=-1, type=int)
@@ -69,11 +70,13 @@ parser.add_argument('--window-size', type=int)
 parser.add_argument('--num-shapelets', type=int, default=40)
 
 
-def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=256, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, window_size=100, num_shapelets=40):
+def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=256, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, window_size=100, num_shapelets=40, device=None):
     is_ddp = False
     if rank != -1 and world_size != -1:
         is_ddp = True
     if is_ddp:      
+        if not torch.cuda.is_available() or device not in (None, 'auto', 'cuda') or (device in (None, 'auto') and not to_cuda):
+            raise ValueError('Distributed training requires CUDA')
         # initialize the process group
         dist.init_process_group('nccl', rank=rank, world_size=world_size)
         torch.cuda.set_device(rank)
@@ -168,7 +171,9 @@ def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alp
                                                 alpha=alpha,
                                                 is_ddp=is_ddp,
                                                 checkpoint=checkpoint,
-                                                seed=seed)
+                                                seed=seed,
+                                                device=device)
+        print(f'Device: {learning_shapelets.device}')
     
     
     
@@ -244,10 +249,10 @@ def main(rank, world_size):
                             seed=args.seed,
                             T=args.temperature,
                             l=args.lmd,
-                            ls=args.lmd-s,
+                            ls=args.lmd_s,
                             alpha=args.alpha,
                             batch_size=args.batch_size,
-                            to_cuda=args.to_cuda,
+                            to_cuda=args.to_cuda == 'true',
                             eval_per_x_epochs=args.eval_per_x_epochs,
                             dist_measure=args.dist_measure,
                             rank=rank,
@@ -255,7 +260,8 @@ def main(rank, world_size):
                             resize=args.resize,
                             checkpoint=args.checkpoint,
                             window_size=args.window_size,
-                            num_shapelets=args.num_shapelets)
+                            num_shapelets=args.num_shapelets,
+                            device=args.device)
     if results != None:
         print(results[-1])
     

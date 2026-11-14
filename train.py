@@ -34,24 +34,39 @@ class LearningShapeletsCL:
     verbose : bool
         monitors training loss if set to true.
     to_cuda : bool
-        if true loads everything to the GPU
+        legacy device selection when device is not specified
+    device : str or torch.device, optional
+        'auto', 'cpu', 'cuda', or 'mps'. Auto prefers CUDA, then MPS, then CPU.
     """
     def __init__(self, shapelets_size_and_len, loss_func, in_channels=1, num_classes=2,
-                 dist_measure='euclidean', verbose=0, to_cuda=True, l3=0.0, l4=0.0, T=0.1, alpha=0.0, is_ddp=False, checkpoint=False, seed=None):
+                 dist_measure='euclidean', verbose=0, to_cuda=True, l3=0.0, l4=0.0, T=0.1, alpha=0.0, is_ddp=False, checkpoint=False, seed=None, device=None):
         self.is_ddp = is_ddp
         self.checkpoint = checkpoint
         self.seed = seed
+        if device is None:
+            device = 'cuda' if to_cuda else 'cpu'
+        elif device == 'auto':
+            if not to_cuda:
+                device = 'cpu'
+            elif torch.cuda.is_available():
+                device = 'cuda'
+            elif torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+        self.device = torch.device(device)
+        if is_ddp and self.device.type != 'cuda':
+            raise ValueError('Distributed training requires CUDA')
         if dist_measure == 'mix':
             self.model = LearningShapeletsModelMixDistances(shapelets_size_and_len=shapelets_size_and_len,
                                             in_channels=in_channels, num_classes=num_classes, dist_measure=dist_measure,
-                                            to_cuda=to_cuda, checkpoint=checkpoint)
+                                            to_cuda=False, checkpoint=checkpoint)
         else:
             self.model = LearningShapeletsModel(shapelets_size_and_len=shapelets_size_and_len,
                                             in_channels=in_channels, num_classes=num_classes, dist_measure=dist_measure,
-                                            to_cuda=to_cuda, checkpoint=checkpoint)
-        self.to_cuda = to_cuda
-        if self.to_cuda:
-            self.model.cuda()
+                                            to_cuda=False, checkpoint=checkpoint)
+        self.to_cuda = self.device.type == 'cuda'
+        self.model.to(self.device)
 
         self.shapelets_size_and_len = shapelets_size_and_len
         self.num_shapelets = sum(shapelets_size_and_len.values())
@@ -124,8 +139,7 @@ class LearningShapeletsCL:
         x_q = torch.from_numpy(x_q).float()
         x_q = x_q.transpose(1,2)
         
-        if self.to_cuda:
-            x_q = x_q.cuda()
+        x_q = x_q.to(self.device)
                 
         
         aug2 = np.random.choice(augmentation_list, 1, replace=False)
@@ -138,8 +152,7 @@ class LearningShapeletsCL:
         x_k = torch.from_numpy(x_k).float()
         x_k = x_k.transpose(1,2)
         
-        if self.to_cuda:
-            x_k = x_k.cuda()
+        x_k = x_k.to(self.device)
         
         
         
@@ -165,11 +178,7 @@ class LearningShapeletsCL:
             k = nn.functional.normalize(k, dim=1)
             logits = torch.einsum('nc,ck->nk', [q, k.t()])
             logits /= self.T
-            labels = torch.arange(q.shape[0], dtype=torch.long)
-            
-            
-            if self.to_cuda:
-                labels = labels.cuda()
+            labels = torch.arange(q.shape[0], dtype=torch.long, device=self.device)
             
             
             loss = self.loss_func(logits, labels)     
@@ -291,10 +300,8 @@ class LearningShapeletsCL:
             for (x, y) in train_dl:
                 
                 # check if training should be done with regularizer
-                if self.to_cuda:
-                    x = x.cuda()
-                    y = y.cuda()
-                    #print("Training data", idx, " on cuda ", torch.cuda.current_device())
+                x = x.to(self.device)
+                y = y.to(self.device)
                 loss_ce = self.update(x, y)
                 losses_ce.append(loss_ce)
         return losses_ce
@@ -342,27 +349,16 @@ class LearningShapeletsCL:
             if self.is_ddp:
                 sampler.set_epoch(epoch + epoch_idx * epochs)
             
-            if self.to_cuda:
-                c_normalising_factor_q = torch.tensor([0], dtype=torch.float).cuda()
-                C_accu_q = [torch.tensor([0], dtype=torch.float).cuda() for _ in range(len(self.shapelets_size_and_len))]
-                c_normalising_factor_k = torch.tensor([0], dtype=torch.float).cuda()
-                C_accu_k = [torch.tensor([0], dtype=torch.float).cuda() for _ in range(len(self.shapelets_size_and_len))]
-            else:
-                c_normalising_factor_q = torch.tensor([0], dtype=torch.float)
-                C_accu_q = [torch.tensor([0], dtype=torch.float) for _ in range(len(self.shapelets_size_and_len))]
-                c_normalising_factor_k = torch.tensor([0], dtype=torch.float)
-                C_accu_k = [torch.tensor([0], dtype=torch.float) for _ in range(len(self.shapelets_size_and_len))]
+            c_normalising_factor_q = torch.zeros(1, device=self.device)
+            C_accu_q = [torch.zeros(1, device=self.device) for _ in range(len(self.shapelets_size_and_len))]
+            c_normalising_factor_k = torch.zeros(1, device=self.device)
+            C_accu_k = [torch.zeros(1, device=self.device) for _ in range(len(self.shapelets_size_and_len))]
             
             
             for (x, idx) in train_dl:
                 
                 # check if training should be done with regularizer
-                if self.to_cuda:
-                    x = x.cuda()
-                    #print("Training data", idx, " on cuda ", torch.cuda.current_device())
                 
-                
-                    
         
                 if not self.use_regularizer:       
                     current_loss_ce, C_accu_q, c_normalising_factor_q, C_accu_k, c_normalising_factor_k = self.update_CL(x, C_accu_q, c_normalising_factor_q, C_accu_k, c_normalising_factor_k)
@@ -400,8 +396,7 @@ class LearningShapeletsCL:
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
         shapelet_transform = []
         for (x, ) in dataloader:
-            if self.to_cuda:
-                x = x.cuda()
+            x = x.to(self.device)
             with torch.no_grad():
             #shapelet_transform = self.model.transform(X)
                 shapelet_transform.append(self.model(x, optimize=None).cpu())
@@ -422,8 +417,7 @@ class LearningShapeletsCL:
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
         preds = []
         for (x, ) in dataloader:
-            if self.to_cuda:
-                x = x.cuda()
+            x = x.to(self.device)
             with torch.no_grad():
             #shapelet_transform = self.model.transform(X)
                 preds.append(self.model(x).cpu())

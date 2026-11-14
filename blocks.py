@@ -34,7 +34,8 @@ class MinEuclideanDistBlock(nn.Module):
         x = x.unfold(2, self.shapelets_size, 1).contiguous()
         
         # calculate euclidean distance
-        x = torch.cdist(x, self.shapelets, p=2, compute_mode='donot_use_mm_for_euclid_dist')
+        compute_mode = 'use_mm_for_euclid_dist' if x.device.type == 'mps' else 'donot_use_mm_for_euclid_dist'
+        x = torch.cdist(x, self.shapelets, p=2, compute_mode=compute_mode)
         #x = torch.cdist(x, self.shapelets, p=2)
         
         # add up the distances of the channels in case of
@@ -204,7 +205,7 @@ class ShapeletsDistBlocks(nn.Module):
 
     def forward(self, x, masking=False):
        
-        out = torch.tensor([], dtype=torch.float).cuda() if self.to_cuda else torch.tensor([], dtype=torch.float)
+        out = x.new_empty(0)
         for block in self.blocks:
             if self.checkpoint and self.dist_measure != 'cross-correlation':
                 out = torch.cat((out, checkpoint(block, x, masking)), dim=2)
@@ -320,7 +321,7 @@ class LearningShapeletsModelMixDistances(nn.Module):
         n_samples = x.shape[0]
         num_lengths = len(self.shapelets_size_and_len)
         
-        out = torch.tensor([], dtype=torch.float).cuda() if self.to_cuda else torch.tensor([], dtype=torch.float)
+        out = x.new_empty(0)
         
         x_out = self.shapelets_euclidean(x, masking)
         x_out = torch.squeeze(x_out, 1)
